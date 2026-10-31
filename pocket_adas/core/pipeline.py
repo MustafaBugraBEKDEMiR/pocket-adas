@@ -14,10 +14,6 @@ from .detectors import DetectorConfig, ThresholdDetector, VerticalDetector, Spee
 from .filters import EMA, HighPass
 from .scoring import trip_score
 
-# The 2023 rule, kept for comparison: raw |x|+|y|+|z| >= 15 means "danger"
-LEGACY_THRESHOLD = 15.0
-
-
 class ADASPipeline:
     def __init__(self, fs: float = 50.0, config: Optional[DetectorConfig] = None,
                  speed_limit_fn: Optional[Callable[[dict], Optional[float]]] = None):
@@ -49,9 +45,7 @@ class ADASPipeline:
         self.limit_kmh = None
         self.lat = self.lon = None
         self.distance_m = 0.0
-        self.legacy_alerts = 0
-        self._legacy_on = False
-        self.signals = {"lon": 0.0, "lat": 0.0, "vert": 0.0, "yaw": 0.0, "legacy": 0.0}
+        self.signals = {"lon": 0.0, "lat": 0.0, "vert": 0.0, "yaw": 0.0, "lon_raw": 0.0, "lat_raw": 0.0}
 
     # ----------------------------------------------------------------- public
     @property
@@ -69,13 +63,6 @@ class ADASPipeline:
         dt = self.dt if self.t == 0 else max(1e-3, t - self.t)
         self.t = t
         new = []
-
-        # 2023 rule, for the side-by-side comparison only
-        legacy = float(np.abs(acc).sum())
-        self.signals["legacy"] = legacy
-        if legacy >= LEGACY_THRESHOLD and not self._legacy_on:
-            self.legacy_alerts += 1
-        self._legacy_on = legacy >= LEGACY_THRESHOLD
 
         if gps is not None:
             self.cal.on_gps(t, gps["speed"])
@@ -98,8 +85,10 @@ class ADASPipeline:
 
         fwd = self.cal.forward
         if fwd is not None:
-            lon = self._lon(float(np.dot(a_lin, fwd)))
-            lat = self._lat(float(np.dot(a_lin, self.cal.left)))
+            lon_raw = float(np.dot(a_lin, fwd))
+            lat_raw = float(np.dot(a_lin, self.cal.left))
+            self.signals["lon_raw"], self.signals["lat_raw"] = lon_raw, lat_raw
+            lon, lat = self._lon(lon_raw), self._lat(lat_raw)
             self.signals["lon"], self.signals["lat"] = lon, lat
             # dead-reckon speed between GPS fixes
             if gps is None:

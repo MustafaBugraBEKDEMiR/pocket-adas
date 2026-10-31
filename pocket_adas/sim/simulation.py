@@ -50,6 +50,7 @@ class Simulation:
         veh.step(throttle, steer, self.dt, self.road.height_at, extra_drag=1.5 if off_road else 0.0)
         self.t += self.dt
         s = self.phone.sample(self.t, veh)
+        self.last_sample = s
         events = self.pipeline.update(self.t, s["acc"], s["gyro"], s["gps"])
         if self.record:
             g = s["gps"] or {}
@@ -86,7 +87,7 @@ class Simulation:
         summary = {
             "tag": tag, "duration_s": round(self.t, 1), "distance_m": round(p.distance_m, 1),
             "score": p.score, "events": event_counts(p.events),
-            "legacy_2023_alerts": p.legacy_alerts, "mount": self.phone.mount,
+            "mount": self.phone.mount,
             "calibration": p.cal.stage,
         }
         with open(os.path.join(d, "summary.json"), "w") as f:

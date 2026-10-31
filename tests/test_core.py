@@ -53,3 +53,12 @@ def test_still_phone_is_safe_at_any_angle():
                      {"lat": 0, "lon": 0, "speed": 0.0} if k % 50 == 0 else None)
         assert p.status.level == E.SAFE
         assert not p.events
+
+
+def test_ml_labels_from_ground_truth():
+    from pocket_adas.ml.dataset import simulate_trip, windows
+    trip = simulate_trip("aggressive", "random", seed=0, seconds=90)
+    Xc, Xr, yt, yr = windows(trip)
+    assert len(Xc) == len(yt) == len(yr) > 100
+    assert {E.HARSH_BRAKE, E.HARSH_TURN} <= set(yt)
+    assert (yt == yr).mean() > 0.85   # rules agree with ground truth on most windows

@@ -24,14 +24,13 @@ def headless(args):
     print(f"driver={driver} mount={args.mount} distance={p.distance_m / 1000:.2f} km "
           f"score={p.score} calibration={p.cal.stage}")
     print("events:", event_counts(p.events))
-    print("2023 rule alerts:", p.legacy_alerts)
     if args.save:
         print("saved to", sim.save_trip(tag=driver))
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--driver", choices=["manual", "calm", "aggressive"], default="manual")
+    ap.add_argument("--driver", choices=["manual", "calm", "normal", "aggressive"], default="manual")
     ap.add_argument("--mount", choices=["dashboard", "flat", "random"], default="dashboard")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--headless", action="store_true", help="no window, autopilot only")

@@ -16,10 +16,14 @@ class DriverProfile:
     dec_max: float
     slow_for_humps: bool
     disturb_every_s: float   # mean time between sudden manoeuvres (0 = never)
+    swerve_amp: float = 3.0  # lateral offset of a swerve (m)
+    swerve_time: float = 1.6
 
 
 PROFILES = {
     "calm": DriverProfile(0.9, 1.6, 1.4, 1.8, True, 0.0),
+    # in between: mostly fine, sometimes crosses a threshold - the hard cases
+    "normal": DriverProfile(1.05, 3.0, 2.6, 3.4, True, 30.0, 2.0, 2.2),
     "aggressive": DriverProfile(1.3, 6.5, 3.8, 7.5, False, 18.0),
 }
 
@@ -38,7 +42,7 @@ class Autopilot:
         n = len(road.pts)
         limit, _ = road.zone_at_s(road.s[i])
         best = limit / 3.6 * p.speed_factor
-        dec = p.dec_max * (0.8 if self.name == "calm" else 1.0)
+        dec = p.dec_max * (0.8 if self.name != "aggressive" else 1.0)
         for d in range(5, 120, 3):
             j = (i + d) % n
             k = road.curvature[j]
@@ -70,8 +74,8 @@ class Autopilot:
         # lane offset (+ a quick swerve)
         offset = road.lane_offset
         ts = t - self._swerve_t0
-        if ts < 1.6:
-            offset += 3.0 * self._swerve_dir * math.sin(math.pi * ts / 1.6)
+        if ts < p.swerve_time:
+            offset += p.swerve_amp * self._swerve_dir * math.sin(math.pi * ts / p.swerve_time)
 
         # pure pursuit
         look = max(6.0, 0.9 * veh.v)

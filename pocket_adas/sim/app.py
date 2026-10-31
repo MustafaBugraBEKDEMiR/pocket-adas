@@ -35,7 +35,7 @@ EVENT_COLOURS = {
     E.BUMP: (240, 220, 60), E.POTHOLE: (160, 120, 80), E.SPEEDING: (80, 170, 255),
     E.SUDDEN_MOVE: (250, 250, 250),
 }
-HELP = ("Arrows/WASD drive  SPACE hard brake  1 manual  2 calm  3 aggressive  "
+HELP = ("Arrows/WASD drive  SPACE hard brake  1 manual  2 calm  3 normal  4 aggressive  "
         "M remount phone  R reset  P pause  ESC quit+save")
 
 
@@ -183,9 +183,9 @@ class App:
                     elif k == pygame.K_m:
                         self.mount_idx = (self.mount_idx + 1) % len(MOUNTS)
                         self.sim.remount_phone(MOUNTS[self.mount_idx])
-                    elif k in (pygame.K_1, pygame.K_2, pygame.K_3):
+                    elif k in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
                         self._set_driver({pygame.K_1: "manual", pygame.K_2: "calm",
-                                          pygame.K_3: "aggressive"}[k])
+                                          pygame.K_3: "normal", pygame.K_4: "aggressive"}[k])
             if not self.paused:
                 self.tick()
             self.draw()
@@ -205,7 +205,7 @@ class App:
             th, st = self._handle_input(dt)
         new = self.sim.step(th, st)
         p = self.sim.pipeline
-        self.hist.append((p.signals["lon"], p.signals["lat"], p.signals["vert"], p.signals["legacy"]))
+        self.hist.append((p.signals["lon"], p.signals["lat"], p.signals["vert"]))
         if new:
             danger = any(e.severity >= p.cfg.danger_ratio for e in new)
             snd = self.snd_danger if danger else self.snd_warn
@@ -260,7 +260,7 @@ class App:
         pygame.draw.rect(self.screen, (255, 255, 255), (mx + area.x * sc, my + area.y * sc,
                                                         area.w * sc, area.h * sc), 1)
         # mode badge
-        tag = {"manual": "MANUAL", "calm": "AUTOPILOT: CALM", "aggressive": "AUTOPILOT: AGGRESSIVE"}[self.driver]
+        tag = "MANUAL" if self.driver == "manual" else "AUTOPILOT: " + self.driver.upper()
         t = self.f_med.render(tag + ("  (PAUSED)" if self.paused else ""), True, C_TEXT)
         pygame.draw.rect(self.screen, (0, 0, 0), (8, 8, t.get_width() + 16, 30), border_radius=6)
         self.screen.blit(t, (16, 14))
@@ -301,14 +301,7 @@ class App:
                                              True, C_DIM), (x0 + 16, y))
         y += 22
         y = self._draw_plot(x0 + 14, y, pw - 28, 150)
-        # 2023 comparison
-        y += 6
-        on = p.signals["legacy"] >= 15
-        pygame.draw.circle(self.screen, (215, 55, 55) if on else (70, 74, 82), (x0 + 24, y + 9), 7)
-        self.screen.blit(self.f_small.render(
-            f"2023 rule |x|+|y|+|z|>=15: {p.signals['legacy']:5.1f}   alerts so far: {p.legacy_alerts}",
-            True, C_TEXT), (x0 + 38, y + 2))
-        y += 26
+        y += 10
         # event log
         self.screen.blit(self.f_med.render("Events", True, C_TEXT), (x0 + 16, y))
         y += 24

@@ -5,3 +5,4 @@ trips/
 .venv/
 .idea/
 .vscode/
+data/
