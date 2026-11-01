@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 
@@ -79,3 +81,19 @@ def test_osm_world_routes_and_detects():
     assert sim.pipeline.distance_m > 600
     assert sim.pipeline.cal.stage == "done"
     assert not [e for e in sim.pipeline.events if e.kind != E.POTHOLE]
+
+
+def test_replay_matches_live_run(tmp_path):
+    from pocket_adas.core.scoring import event_counts
+    from pocket_adas.replay import load_recording, replay
+    sim = Simulation(seed=1, mount="random")
+    ap = Autopilot("aggressive", sim.rng)
+    for _ in range(90 * 50):
+        th, st = ap.control(sim, sim.dt) if sim.t > 3 else (0.0, 0.0)
+        sim.step(th, st)
+    d = sim.save_trip(out_dir=str(tmp_path), tag="t")
+    p = replay(load_recording(os.path.join(d, "sensors.csv")))
+    # no map was given to the replay, so speed limits (and SPEEDING) are unknown there
+    motion = lambda evs: event_counts([e for e in evs if e.kind != E.SPEEDING])
+    assert motion(p.events) == motion(sim.pipeline.events)
+    assert os.path.exists(os.path.join(d, "report.html"))

@@ -11,7 +11,9 @@ This repository contains the device-independent **ADAS core** and a top-down **2
 simulator** with a virtual phone that runs on a test track or on **real streets loaded from
 OpenStreetMap**, so the whole system can be tried and tested on a desktop.
 
-![Simulator on OpenStreetMap streets of Sıhhiye, Ankara](docs/screenshot_osm.png)
+![Aggressive autopilot on OpenStreetMap streets of Sıhhiye, Ankara](docs/demo.gif)
+
+Technical report: [`docs/REPORT.md`](docs/REPORT.md)
 
 ## What it detects
 
@@ -86,6 +88,20 @@ On exit a trip folder is written to `trips/`:
 | normal | score 71: 7 harsh brake, 4 harsh accel, 1 sharp turn | score 78: 3 harsh brake, 6 harsh accel, 3 sharp turn |
 | aggressive | score 0: 12 harsh brake, 9 harsh accel, 14 sharp turn, 12 speeding, 5 fast bumps | score 0: 21 harsh brake, 14 harsh accel, 30 sharp turn, 14 speeding |
 
+## Replay a recorded drive
+
+The same core can replay real recordings from the free **Sensor Logger** app (iOS/Android) or
+any simulator trip, and writes the same trip report:
+
+```bash
+python -m pocket_adas.replay my_drive.zip --map maps/ankara_sihhiye.osm
+python -m pocket_adas.replay trips/<trip>/sensors.csv
+```
+
+When recording, enable *Accelerometer*, *Gravity* (or *Total Acceleration*), *Gyroscope* and
+*Location*. Fix the phone in the car and keep the car still for the first few seconds. Units and
+axis conventions are detected automatically, and the mount is calibrated from the data.
+
 ## Rules vs. machine learning
 
 `python -m pocket_adas.ml.train` simulates 54 five-minute trips (calm / normal / aggressive
@@ -130,9 +146,22 @@ The prototype is archived, with notes on why it was replaced, in [`legacy/2023`]
 - [x] Simulator with virtual phone, calm/normal/aggressive autopilots, trip logs
 - [x] Labelled dataset from the simulator and an ML classifier compared with the rule-based detector
 - [x] Trip report: score breakdown and an event map (GeoJSON / web map)
-- [ ] Replay mode for recorded trips (simulator or a real phone's Sensor Logger CSV)
+- [x] Replay mode for recorded trips (simulator or a real phone's Sensor Logger CSV)
 - [x] Real streets: load an OpenStreetMap extract (roads, `maxspeed`, `traffic_calming`) as the map
+- [ ] Validate on real recorded drives (hand-labelled events)
 - [ ] Run the core on a phone (Pydroid 3)
+
+## Project layout
+
+```
+pocket_adas/core/     ADAS core: calibration, detectors, scoring (NumPy only)
+pocket_adas/sim/      vehicle, virtual phone, test track, OSM world, autopilots, pygame app
+pocket_adas/ml/       simulator data set, random forest vs. rules
+pocket_adas/replay.py replay Sensor Logger / simulator recordings
+pocket_adas/report.py GeoJSON + HTML trip report
+docs/                 technical report, results, screenshots
+legacy/2023/          archived 2023 prototype
+```
 
 ## Tests
 
