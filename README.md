@@ -13,7 +13,7 @@ OpenStreetMap**, so the whole system can be tried and tested on a desktop.
 
 ![Aggressive autopilot on OpenStreetMap streets of Sıhhiye, Ankara](docs/demo.gif)
 
-Technical report: [`docs/REPORT.md`](docs/REPORT.md)
+Product brief (purpose, users, value): [`docs/PRODUCT_BRIEF.md`](docs/PRODUCT_BRIEF.md) · Technical report: [`docs/REPORT.md`](docs/REPORT.md)
 
 ## What it detects
 
