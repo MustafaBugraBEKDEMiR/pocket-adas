@@ -16,13 +16,18 @@ from .simulation import Simulation
 
 W, H = 1280, 720
 VIEW_W = 800
-PPM = 6.0  # pixels per metre on the track surface
 MINI_W = 220
 
 C_BG = (24, 26, 31)
 C_GRASS = (58, 92, 54)
 C_ROAD = (62, 64, 70)
 C_SCHOOL = (92, 66, 58)
+C_CITY = (196, 190, 178)
+C_BUILDING = (150, 140, 128)
+C_BUILDING_EDGE = (118, 108, 98)
+C_SCHOOLYARD = (214, 196, 160)
+C_KERB = (205, 205, 205)
+C_SERVICE = (88, 90, 96)
 C_PANEL = (32, 35, 42)
 C_TEXT = (230, 232, 236)
 C_DIM = (140, 146, 156)
@@ -54,7 +59,7 @@ def _beep(freq, ms, vol=0.35):
 
 
 class App:
-    def __init__(self, mount="dashboard", seed=None, driver="manual"):
+    def __init__(self, mount="dashboard", seed=None, driver="manual", world=None):
         pygame.init()
         try:
             pygame.mixer.init(44100, -16, 1)
@@ -67,7 +72,7 @@ class App:
         self.f_med = pygame.font.Font(None, 26)
         self.f_big = pygame.font.Font(None, 40)
         self.f_huge = pygame.font.Font(None, 84)
-        self.sim = Simulation(seed=seed, mount=mount)
+        self.sim = Simulation(seed=seed, mount=mount, world=world)
         self.mount_idx = MOUNTS.index(mount)
         self.driver = driver
         self.autopilot = None if driver == "manual" else Autopilot(driver, self.sim.rng)
@@ -79,28 +84,43 @@ class App:
         self.snd_danger = _beep(1300, 260)
         self._build_track_surface()
 
-    # ------------------------------------------------------------ track art
+    # ------------------------------------------------------------ map art
     def _build_track_surface(self):
-        r = self.sim.road
-        pts = r.pts
-        self.minx, self.maxx = pts[:, 0].min() - 60, pts[:, 0].max() + 60
-        self.miny, self.maxy = pts[:, 1].min() - 60, pts[:, 1].max() + 60
-        size = (int((self.maxx - self.minx) * PPM), int((self.maxy - self.miny) * PPM))
+        w = self.sim.world
+        minx, miny, maxx, maxy = w.bounds
+        m = 40
+        self.minx, self.maxx, self.miny, self.maxy = minx - m, maxx + m, miny - m, maxy + m
+        ext = max(self.maxx - self.minx, self.maxy - self.miny)
+        self.ppm = min(6.0, 5200 / ext)  # keep the surface a reasonable size
+        size = (int((self.maxx - self.minx) * self.ppm), int((self.maxy - self.miny) * self.ppm))
         s = pygame.Surface(size)
-        s.fill(C_GRASS)
+        is_city = bool(w.areas)
+        s.fill(C_CITY if is_city else C_GRASS)
         P = lambda p: self._w2t(p[0], p[1])
-        n = len(pts)
-        rw = int(r.width * PPM)
-        for i in range(n):
-            col = C_SCHOOL if r.zone_at_s(r.s[i])[1] == "school" else C_ROAD
-            pygame.draw.line(s, col, P(pts[i]), P(pts[(i + 1) % n]), rw + 3)
-            pygame.draw.circle(s, col, P(pts[i]), rw // 2)
-        for side in (-1, 1):
-            edge = pts + side * (r.width / 2 - 0.3) * r.normal
-            pygame.draw.lines(s, (225, 225, 225), True, [P(p) for p in edge], 2)
-        for i in range(0, n, 8):  # dashed centre line
-            pygame.draw.line(s, (235, 210, 90), P(pts[i]), P(pts[(i + 4) % n]), 2)
-        for f in r.features:
+        for poly, kind in w.areas:
+            col = {"building": C_BUILDING, "park": C_GRASS, "school": C_SCHOOLYARD}[kind]
+            if len(poly) >= 3:
+                pygame.draw.polygon(s, col, [P(p) for p in poly])
+                if kind == "building":
+                    pygame.draw.polygon(s, C_BUILDING_EDGE, [P(p) for p in poly], 1)
+        segs = w.segments()
+        # two passes: kerb colour slightly wider, then asphalt, so junctions merge cleanly
+        for kerb in (True, False):
+            for pts, width, closed, style in segs:
+                wpx = max(2, int(width * self.ppm)) + (4 if kerb else 0)
+                col = C_KERB if kerb else (C_SCHOOL if style == "school" else
+                                           C_SERVICE if style == "service" else C_ROAD)
+                q = [P(p) for p in pts]
+                if len(q) >= 2:
+                    pygame.draw.lines(s, col, closed, q, wpx)
+                for c in q[:: max(1, int(3 / max(self.ppm, 1)))]:
+                    pygame.draw.circle(s, col, c, wpx // 2)
+        if not is_city:  # dashed centre line on the test track
+            pts = w.path.pts
+            n = len(pts)
+            for i in range(0, n, 8):
+                pygame.draw.line(s, (235, 210, 90), P(pts[i]), P(pts[(i + 4) % n]), 2)
+        for f in w.features:
             tx, ty = f.tx, f.ty
             nx, ny = -ty, tx
             hl, hw = f.length / 2, f.width / 2
@@ -109,31 +129,34 @@ class App:
             if f.kind == "hump":
                 pygame.draw.polygon(s, (230, 200, 40), [P(c) for c in corners])
                 for k in np.linspace(-hw, hw, 7):
-                    a = (f.x + nx * k - tx * hl, f.y + ny * k - ty * hl)
-                    b = (f.x + nx * (k + 0.5) + tx * hl, f.y + ny * (k + 0.5) + ty * hl)
-                    pygame.draw.line(s, (30, 30, 30), P(a), P(b), 3)
+                    a0 = (f.x + nx * k - tx * hl, f.y + ny * k - ty * hl)
+                    b0 = (f.x + nx * (k + 0.5) + tx * hl, f.y + ny * (k + 0.5) + ty * hl)
+                    pygame.draw.line(s, (30, 30, 30), P(a0), P(b0), 2)
             else:
-                pygame.draw.circle(s, (35, 30, 28), P((f.x, f.y)), int(hw * PPM))
-        # zone signs
-        for a, b, lim, name in r.zones:
-            i = int(a) % n
-            x, y = pts[i] + (r.width / 2 + 5) * r.normal[i]
-            self._sign(s, P((x, y)), lim, 22)
-            if name == "school":
-                txt = self.f_med.render("SCHOOL ZONE", True, (255, 240, 200))
-                s.blit(txt, (P((x, y))[0] + 26, P((x, y))[1] - 8))
+                pygame.draw.circle(s, (35, 30, 28), P((f.x, f.y)), max(2, int(hw * self.ppm)))
+        for x, y, lim, label in w.signs():
+            self._sign(s, P((x, y)), lim, 18 if is_city else 22)
+            if label:
+                txt = self.f_small.render(label, True, (255, 240, 200))
+                s.blit(txt, (P((x, y))[0] + 22, P((x, y))[1] - 6))
+        for x, y, name in w.labels():
+            txt = self.f_small.render(name, True, (250, 250, 250))
+            sh = self.f_small.render(name, True, (20, 20, 20))
+            c = P((x, y))
+            s.blit(sh, (c[0] - txt.get_width() // 2 + 1, c[1] + 1))
+            s.blit(txt, (c[0] - txt.get_width() // 2, c[1]))
         self.track = s
         mh = int(MINI_W * size[1] / size[0])
         self.mini = pygame.transform.smoothscale(s, (MINI_W, mh))
         self.mini.set_alpha(215)
 
     def _w2t(self, x, y):
-        return int((x - self.minx) * PPM), int((self.maxy - y) * PPM)
+        return int((x - self.minx) * self.ppm), int((self.maxy - y) * self.ppm)
 
     def _sign(self, surf, c, lim, r):
         pygame.draw.circle(surf, (250, 250, 250), c, r)
         pygame.draw.circle(surf, (210, 40, 40), c, r, max(3, r // 5))
-        t = self.f_med.render(str(lim), True, (20, 20, 20))
+        t = self.f_med.render(str(int(lim)), True, (20, 20, 20))
         surf.blit(t, t.get_rect(center=c))
 
     # ----------------------------------------------------------------- input
@@ -223,15 +246,24 @@ class App:
     def _draw_world(self):
         veh = self.sim.vehicle
         cx, cy = self._w2t(veh.x, veh.y)
-        area = pygame.Rect(cx - VIEW_W // 2, cy - (H - 30) // 2, VIEW_W, H - 30)
-        self.screen.fill(C_GRASS, (0, 0, VIEW_W, H - 30))
-        self.screen.blit(self.track, (0, 0), area)
-        to_screen = lambda x, y: (self._w2t(x, y)[0] - area.x, self._w2t(x, y)[1] - area.y)
+        zoom = max(1.0, 5.0 / self.ppm)  # render small, show big
+        vw, vh = int(VIEW_W / zoom), int((H - 30) / zoom)
+        area = pygame.Rect(cx - vw // 2, cy - vh // 2, vw, vh)
+        view = pygame.Surface((vw, vh))
+        view.fill(C_CITY if self.sim.world.areas else C_GRASS)
+        view.blit(self.track, (0, 0), area)
+        if zoom > 1.0:
+            view = pygame.transform.scale(view, (VIEW_W, H - 30))
+        self.screen.blit(view, (0, 0))
+
+        def to_screen(x, y):
+            tx, ty = self._w2t(x, y)
+            return int((tx - area.x) * zoom), int((ty - area.y) * zoom)
         # event markers at their (noisy GPS) positions
         for e in self.sim.pipeline.events:
             if e.lat is None:
                 continue
-            sx, sy = to_screen(*latlon_to_xy(e.lat, e.lon))
+            sx, sy = to_screen(*latlon_to_xy(e.lat, e.lon, self.sim.world.origin))
             if -10 < sx < VIEW_W + 10 and -10 < sy < H:
                 pygame.draw.circle(self.screen, EVENT_COLOURS.get(e.kind, (255, 255, 255)), (sx, sy), 6)
                 pygame.draw.circle(self.screen, (20, 20, 20), (sx, sy), 6, 1)
@@ -254,13 +286,14 @@ class App:
         pygame.draw.rect(self.screen, (0, 0, 0), (mx, my, MINI_W, self.mini.get_height()), 2)
         for e in self.sim.pipeline.events:
             if e.lat is not None:
-                tx, ty = self._w2t(*latlon_to_xy(e.lat, e.lon))
+                tx, ty = self._w2t(*latlon_to_xy(e.lat, e.lon, self.sim.world.origin))
                 pygame.draw.circle(self.screen, EVENT_COLOURS.get(e.kind), (mx + tx * sc, my + ty * sc), 2)
         pygame.draw.circle(self.screen, (255, 255, 255), (mx + cx * sc, my + cy * sc), 4)
         pygame.draw.rect(self.screen, (255, 255, 255), (mx + area.x * sc, my + area.y * sc,
                                                         area.w * sc, area.h * sc), 1)
         # mode badge
         tag = "MANUAL" if self.driver == "manual" else "AUTOPILOT: " + self.driver.upper()
+        tag += "  |  " + self.sim.world.name
         t = self.f_med.render(tag + ("  (PAUSED)" if self.paused else ""), True, C_TEXT)
         pygame.draw.rect(self.screen, (0, 0, 0), (8, 8, t.get_width() + 16, 30), border_radius=6)
         self.screen.blit(t, (16, 14))

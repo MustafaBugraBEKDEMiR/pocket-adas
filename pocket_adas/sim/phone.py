@@ -50,8 +50,9 @@ def mount_rotation(kind: str, rng: np.random.Generator) -> np.ndarray:
 
 class VirtualPhone:
     def __init__(self, rng: np.random.Generator, mount: str = "dashboard",
-                 fs: float = 50.0, gps_rate: float = 1.0):
+                 fs: float = 50.0, gps_rate: float = 1.0, origin=None):
         self.rng = rng
+        self.origin = origin
         self.fs = fs
         self.gps_period = 1.0 / gps_rate
         self.remount(mount)
@@ -77,7 +78,7 @@ class VirtualPhone:
             # slowly wandering position error, like a real receiver
             self._gps_err = 0.8 * self._gps_err + rng.normal(0, 0.8, 2)
             gx, gy = veh.x + self._gps_err[0], veh.y + self._gps_err[1]
-            lat, lon = xy_to_latlon(gx, gy)
+            lat, lon = xy_to_latlon(gx, gy, self.origin) if self.origin else xy_to_latlon(gx, gy)
             speed = max(0.0, veh.v + rng.normal(0, 0.12)) if veh.v > 0.05 else 0.0
             out["gps"] = {"lat": lat, "lon": lon, "speed": speed}
         return out

@@ -62,3 +62,20 @@ def test_ml_labels_from_ground_truth():
     assert len(Xc) == len(yt) == len(yr) > 100
     assert {E.HARSH_BRAKE, E.HARSH_TURN} <= set(yt)
     assert (yt == yr).mean() > 0.85   # rules agree with ground truth on most windows
+
+
+def test_osm_world_routes_and_detects():
+    import os
+    from pocket_adas.sim.osm_world import OsmWorld
+    path = os.path.join(os.path.dirname(__file__), "..", "maps", "ankara_sihhiye.osm")
+    world = OsmWorld(path)
+    assert len(world.routable) > 50
+    assert world.speed_limit_at(*world.start_pose(np.random.default_rng(0))[:2]) is not None
+    sim = Simulation(seed=2, mount="random", world=world, record=False)
+    ap = Autopilot("calm", sim.rng)
+    for _ in range(120 * 50):
+        th, st = ap.control(sim, sim.dt) if sim.t > 3 else (0.0, 0.0)
+        sim.step(th, st)
+    assert sim.pipeline.distance_m > 600
+    assert sim.pipeline.cal.stage == "done"
+    assert not [e for e in sim.pipeline.events if e.kind != E.POTHOLE]

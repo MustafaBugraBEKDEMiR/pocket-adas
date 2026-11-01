@@ -10,23 +10,24 @@ from ..core import ADASPipeline
 from ..core.geo import latlon_to_xy
 from ..core.scoring import event_counts
 from .phone import VirtualPhone
-from .road import Road
+from .road import Track
 from .vehicle import Vehicle
 
 
 class Simulation:
-    def __init__(self, seed=None, mount="dashboard", fs=50.0, record=True):
+    def __init__(self, seed=None, mount="dashboard", fs=50.0, record=True, world=None):
         self.rng = np.random.default_rng(seed)
         self.fs = fs
         self.dt = 1.0 / fs
-        self.road = Road()
-        self.phone = VirtualPhone(self.rng, mount, fs)
+        self.world = world or Track()
+        self.road = self.world  # old name
+        self.phone = VirtualPhone(self.rng, mount, fs, origin=self.world.origin)
         self.pipeline = ADASPipeline(fs, speed_limit_fn=self._limit_from_gps)
         self.record = record
         self.reset_vehicle()
 
     def reset_vehicle(self):
-        x, y, h = self.road.start_pose()
+        x, y, h = self.world.start_pose(self.rng)
         self.vehicle = Vehicle(x, y, h)
         self.t = 0.0
         self.phone._next_gps = 0.0
@@ -40,14 +41,13 @@ class Simulation:
         self.pipeline.cal.reset()
 
     def _limit_from_gps(self, gps):
-        x, y = latlon_to_xy(gps["lat"], gps["lon"])
-        return self.road.speed_limit_at(x, y)
+        x, y = latlon_to_xy(gps["lat"], gps["lon"], self.world.origin)
+        return self.world.speed_limit_at(x, y)
 
     def step(self, throttle, steer):
         veh = self.vehicle
-        _, lat = self.road.nearest(veh.x, veh.y)
-        off_road = abs(lat) > self.road.width / 2 + 0.5
-        veh.step(throttle, steer, self.dt, self.road.height_at, extra_drag=1.5 if off_road else 0.0)
+        off_road = self.world.offroad(veh.x, veh.y)
+        veh.step(throttle, steer, self.dt, self.world.height_at, extra_drag=1.5 if off_road else 0.0)
         self.t += self.dt
         s = self.phone.sample(self.t, veh)
         self.last_sample = s
@@ -87,9 +87,11 @@ class Simulation:
         summary = {
             "tag": tag, "duration_s": round(self.t, 1), "distance_m": round(p.distance_m, 1),
             "score": p.score, "events": event_counts(p.events),
-            "mount": self.phone.mount,
+            "mount": self.phone.mount, "world": self.world.name,
             "calibration": p.cal.stage,
         }
         with open(os.path.join(d, "summary.json"), "w") as f:
             json.dump(summary, f, indent=2)
+        from ..report import build_report
+        build_report(d)
         return d

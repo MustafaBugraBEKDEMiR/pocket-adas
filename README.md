@@ -7,10 +7,11 @@ don't. Every driver, though, carries a phone with an accelerometer, a gyroscope 
 Pocket ADAS turns those sensors into a driving coach that warns the driver in real time,
 with no extra hardware and no internet connection.
 
-This repository contains the device-independent **ADAS core** and a **2D driving
-simulator** with a virtual phone, so the whole system can be tried and tested on a desktop.
+This repository contains the device-independent **ADAS core** and a top-down **2D driving
+simulator** with a virtual phone that runs on a test track or on **real streets loaded from
+OpenStreetMap**, so the whole system can be tried and tested on a desktop.
 
-![Simulator screenshot](docs/screenshot.png)
+![Simulator on OpenStreetMap streets of Sıhhiye, Ankara](docs/screenshot_osm.png)
 
 ## What it detects
 
@@ -49,7 +50,13 @@ is found within about 6 s of driving, with an error under 3°, for dashboard, fl
 ## The simulator
 
 * Kinematic bicycle model with tyre-grip limit, plus a quarter-car suspension for humps and potholes
-* A 2 km test track with urban (50), school (30) and boulevard (70) zones, two speed humps and three potholes
+* Two kinds of map:
+  * a 2 km **test track** with urban (50), school (30) and boulevard (70) zones, two speed humps and three potholes
+  * **real streets from OpenStreetMap** (any `.osm` export). One-way streets and roundabouts are respected, and
+    buildings and parks are drawn. The speed limit comes from `maxspeed`, or from Turkish urban defaults when the
+    tag is missing. Roads within 60 m of a school become 30 km/h zones. Humps come from `traffic_calming`; when a map
+    has none, they are placed on some pedestrian crossings and marked as synthetic. The autopilot drives a random
+    route through the street graph.
 * A **virtual phone** that reports what a real one would: specific force *including gravity*,
   rotated into the phone's own axes, with bias, noise, engine/road vibration and a wandering 1 Hz GPS
 * Drive it yourself, or watch the **calm**, **normal** and **aggressive** autopilots
@@ -60,19 +67,24 @@ pip install -r requirements.txt
 python run_sim.py                          # drive yourself (arrows / WASD, SPACE = hard brake)
 python run_sim.py --driver aggressive      # watch the aggressive autopilot
 python run_sim.py --mount random           # phone at a random angle
+python run_sim.py --map maps/ankara_sihhiye.osm --driver normal   # real streets
 python run_sim.py --headless --driver calm --mount random --duration 200
 ```
 
-On exit a trip folder is written to `trips/` (`sensors.csv` in a Sensor Logger-like layout,
-`truth.csv`, `events.csv`, `summary.json`).
+On exit a trip folder is written to `trips/`:
 
-### Example results (autopilot runs of 200–240 s, phone at a random angle)
+* `sensors.csv`: raw phone log in a Sensor Logger-like layout, plus `truth.csv` (true vehicle motion)
+* `events.csv`, `summary.json`
+* `events.geojson`, `route.geojson`: open them in QGIS or geojson.io
+* `report.html`: trip report with the score, the event counts and every event on an OpenStreetMap base map
 
-| Driver | Distance | Behaviour warnings | Score |
-|---|---|---|---|
-| calm | 1.96 km | none (3 potholes logged as road defects) | 96 |
-| normal | 2.94 km | 7 harsh brake, 3 harsh accel, 1 sharp turn | 72 |
-| aggressive | 3.14 km | 8 harsh brake, 8 harsh accel, 13 sharp turn, 8 speeding, 4 fast bumps | 0 |
+### Example results (240 s autopilot runs, phone at a random angle)
+
+| Driver | Test track | OSM streets (Sıhhiye, Ankara) |
+|---|---|---|
+| calm | score 97, no behaviour warnings (3 potholes logged as road defects) | score 100, no events |
+| normal | score 71: 7 harsh brake, 4 harsh accel, 1 sharp turn | score 78: 3 harsh brake, 6 harsh accel, 3 sharp turn |
+| aggressive | score 0: 12 harsh brake, 9 harsh accel, 14 sharp turn, 12 speeding, 5 fast bumps | score 0: 21 harsh brake, 14 harsh accel, 30 sharp turn, 14 speeding |
 
 ## Rules vs. machine learning
 
@@ -82,9 +94,9 @@ each window from the **true** vehicle motion. Three methods are then scored on t
 
 | Macro-F1 | Unseen trips | Unseen mount (trained on dashboard + flat, tested on random) |
 |---|---|---|
-| Rule-based core (no training) | 0.90 | 0.91 |
+| Rule-based core (no training) | 0.91 | 0.90 |
 | Random forest on car-axis features (after calibration) | **0.93** | **0.95** |
-| Random forest on raw phone-axis features (the 2023 approach) | 0.82 | 0.50 |
+| Random forest on raw phone-axis features (the 2023 approach) | 0.81 | 0.46 |
 
 What this shows:
 
@@ -115,11 +127,11 @@ The prototype is archived, with notes on why it was replaced, in [`legacy/2023`]
 ## Roadmap
 
 - [x] Device-independent core: auto-calibration, detectors, scoring
-- [x] Simulator with virtual phone, calm/aggressive autopilots, trip logs
+- [x] Simulator with virtual phone, calm/normal/aggressive autopilots, trip logs
 - [x] Labelled dataset from the simulator and an ML classifier compared with the rule-based detector
-- [ ] Trip report: score breakdown and an event map (GeoJSON / web map)
+- [x] Trip report: score breakdown and an event map (GeoJSON / web map)
 - [ ] Replay mode for recorded trips (simulator or a real phone's Sensor Logger CSV)
-- [ ] Real streets: load an OpenStreetMap extract (roads, `maxspeed`, `traffic_calming`) as the map
+- [x] Real streets: load an OpenStreetMap extract (roads, `maxspeed`, `traffic_calming`) as the map
 - [ ] Run the core on a phone (Pydroid 3)
 
 ## Tests
@@ -131,4 +143,5 @@ python -m pytest -q
 
 ## License
 
-MIT
+Code: MIT. `maps/ankara_sihhiye.osm`: © OpenStreetMap contributors, available under the
+[Open Database License](https://www.openstreetmap.org/copyright).

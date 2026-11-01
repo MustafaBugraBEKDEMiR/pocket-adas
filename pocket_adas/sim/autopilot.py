@@ -7,6 +7,8 @@ They are used for hands-free demos and (phase 2) for labelled training data.
 import math
 from dataclasses import dataclass
 
+import numpy as np
+
 
 @dataclass
 class DriverProfile:
@@ -36,35 +38,62 @@ class Autopilot:
         self._brake_until = -1.0
         self._swerve_t0 = -10.0
         self._swerve_dir = 1.0
+        self.path = None
+        self._humps = []   # path indices of speed humps
 
-    def _target_speed(self, road, i, v):
-        p = self.p
-        n = len(road.pts)
-        limit, _ = road.zone_at_s(road.s[i])
-        best = limit / 3.6 * p.speed_factor
+    # ------------------------------------------------------------- route
+    def _set_path(self, path, world):
+        self.path = path
+        self._humps = []
+        for f in world.features:
+            if f.kind != "hump":
+                continue
+            d = path.pts - (f.x, f.y)
+            j = int(np.argmin(np.einsum("ij,ij->i", d, d)))
+            if np.hypot(*d[j]) < 6:
+                self._humps.append(j)
+
+    def _locate(self, sim):
+        veh, world = sim.vehicle, sim.world
+        if self.path is None:
+            self._set_path(world.new_path(veh.x, veh.y, veh.heading, self.rng), world)
+        i = self.path.nearest(veh.x, veh.y)
+        if np.hypot(*(self.path.pts[i] - (veh.x, veh.y))) > 20:   # e.g. after manual driving
+            self._set_path(world.new_path(veh.x, veh.y, veh.heading, self.rng), world)
+            i = self.path.nearest(veh.x, veh.y)
+        new = world.extend_path(self.path, i, self.rng)
+        if new is not self.path:
+            self._set_path(new, world)
+            i = self.path.nearest(veh.x, veh.y)
+        return i
+
+    def _target_speed(self, i):
+        p, path = self.p, self.path
+        n = len(path.pts)
+        best = path.limits[i] / 3.6 * p.speed_factor
         dec = p.dec_max * (0.8 if self.name != "aggressive" else 1.0)
-        for d in range(5, 120, 3):
-            j = (i + d) % n
-            k = road.curvature[j]
+        for d in range(0, 120, 2):
+            if not path.closed and i + d >= n:
+                break
+            j = path.idx(i + d)
+            k = path.curvature[j]
             v_pt = math.sqrt(p.a_lat_max / k) if k > 1e-4 else 99.0
-            lim_j, _ = road.zone_at_s(road.s[j])
-            v_pt = min(v_pt, lim_j / 3.6 * p.speed_factor)
+            v_pt = min(v_pt, path.limits[j] / 3.6 * p.speed_factor)
             best = min(best, math.sqrt(v_pt ** 2 + 2 * dec * d))
         if p.slow_for_humps:
-            for f in road.features:
-                if f.kind != "hump":
-                    continue
-                d = (f.s - road.s[i]) % road.length
-                if d < 60:
+            for j in self._humps:
+                d = (j - i) % n if path.closed else j - i
+                if 0 <= d < 60:
                     best = min(best, math.sqrt((15 / 3.6) ** 2 + 2 * dec * max(0.0, d - 3)))
         return best
 
     def control(self, sim, dt):
-        veh, road, t = sim.vehicle, sim.road, sim.t
+        veh, t = sim.vehicle, sim.t
         p = self.p
-        i, _ = road.nearest(veh.x, veh.y)
+        i = self._locate(sim)
+        path = self.path
 
-        # random sudden manoeuvres for the aggressive driver
+        # random sudden manoeuvres
         if p.disturb_every_s > 0 and veh.v > 8 and self.rng.random() < dt / p.disturb_every_s:
             if self.rng.random() < 0.5:
                 self._brake_until = t + self.rng.uniform(0.8, 1.5)
@@ -72,21 +101,22 @@ class Autopilot:
                 self._swerve_t0, self._swerve_dir = t, self.rng.choice([-1.0, 1.0])
 
         # lane offset (+ a quick swerve)
-        offset = road.lane_offset
+        look = max(6.0, 0.9 * veh.v)
+        j = path.idx(i + int(look))
+        offset = path.lane_offset[j]
         ts = t - self._swerve_t0
         if ts < p.swerve_time:
             offset += p.swerve_amp * self._swerve_dir * math.sin(math.pi * ts / p.swerve_time)
 
         # pure pursuit
-        look = max(6.0, 0.9 * veh.v)
-        tx, ty = road.lane_point(i + int(look), offset)
+        tx, ty = path.lane_point(j, offset)
         alpha = math.atan2(ty - veh.y, tx - veh.x) - veh.heading
         alpha = (alpha + math.pi) % (2 * math.pi) - math.pi
         delta = math.atan2(2 * veh.p.wheelbase * math.sin(alpha), look)
         steer = delta / veh.p.max_steer
 
         # speed
-        v_t = self._target_speed(road, i, veh.v)
+        v_t = self._target_speed(i)
         a_des = max(-p.dec_max, min(p.acc_max, 1.5 * (v_t - veh.v)))
         if t < self._brake_until:
             a_des = -p.dec_max
