@@ -140,6 +140,25 @@ API Gateway, Lambda and Kafka to a Python consumer that beeped when `|x|+|y|+|z|
 That rule never removed gravity, so its alerts depended on how the phone was mounted.
 The prototype is archived, with notes on why it was replaced, in [`legacy/2023`](legacy/2023).
 
+## Live mode: stream a real phone
+
+Sensor Logger can push its samples over HTTP while recording. `pocket_adas.live`
+receives them on a laptop in the same Wi-Fi/hotspot and runs the same core in real
+time, with no cloud service in between:
+
+```bash
+python -m pocket_adas.live --port 8000 --map maps/ankara_sihhiye.osm
+# phone: Sensor Logger > Logger page > gear icon > HTTP Push URL: http://<laptop-ip>:8000/data
+#        sensors: Accelerometer + Gravity (or Accelerometer Uncalibrated), Gyroscope, Location
+```
+
+Status changes and events are printed as they happen, `GET /status` returns the current
+status as JSON, and Ctrl-C writes the usual trip folder and report. Turn on
+*Standardise Units & Frames* in Sensor Logger, or pass `--accel-unit g` for iOS defaults.
+This replaces the 2023 Lambda → Kafka → EC2 chain in [`legacy/2023`](legacy/2023).
+Tests feed simulator trips through the push format (Android- and iOS-style streams, and
+through a real HTTP server) and check that live and replay give the same events.
+
 ## Roadmap
 
 - [x] Device-independent core: auto-calibration, detectors, scoring
@@ -149,6 +168,7 @@ The prototype is archived, with notes on why it was replaced, in [`legacy/2023`]
 - [x] Replay mode for recorded trips (simulator or a real phone's Sensor Logger CSV)
 - [x] Real streets: load an OpenStreetMap extract (roads, `maxspeed`, `traffic_calming`) as the map
 - [ ] Validate on real recorded drives (hand-labelled events)
+- [x] Live streaming from a real phone over the local network (Sensor Logger HTTP push)
 - [ ] Run the core on a phone (Pydroid 3)
 
 ## Project layout
@@ -158,6 +178,7 @@ pocket_adas/core/     ADAS core: calibration, detectors, scoring (NumPy only)
 pocket_adas/sim/      vehicle, virtual phone, test track, OSM world, autopilots, pygame app
 pocket_adas/ml/       simulator data set, random forest vs. rules
 pocket_adas/replay.py replay Sensor Logger / simulator recordings
+pocket_adas/live.py   live Sensor Logger HTTP push -> core (local network)
 pocket_adas/report.py GeoJSON + HTML trip report
 docs/                 technical report, results, screenshots
 legacy/2023/          archived 2023 prototype

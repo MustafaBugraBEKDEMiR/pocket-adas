@@ -22,3 +22,7 @@ Why it was replaced:
   The new core runs on the device.
 * The Keras model (≈65–75 % accuracy on the Kaggle *Driving Behavior* dataset) was dropped from
   the live loop in 2023 because its predictions were unstable; it was not reproducible.
+
+**Successor of the streaming path:** `python -m pocket_adas.live` receives the same
+Sensor Logger HTTP push directly on a laptop and runs the calibrated core, without
+API Gateway, Lambda, Kafka or EC2. The original repository is `gmtdeneme`.
